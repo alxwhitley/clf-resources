@@ -1,0 +1,36 @@
+---
+import { render } from 'astro:content';
+import SiteLayout from '../layouts/SiteLayout.astro';
+import { areaUrl, getPublishedResources } from '../lib/resources';
+
+export async function getStaticPaths() {
+  const resources = await getPublishedResources();
+  return resources.map((resource) => ({ params: { slug: resource.data.slug }, props: { resource } }));
+}
+
+const { resource } = Astro.props;
+const { Content } = await render(resource);
+---
+<SiteLayout title={resource.data.title} description={`${resource.data.title} — ${resource.data.sourceArea} · CLF Church Resources`}>
+  <article class="shell article-shell">
+    <div class="article-head">
+      <a class="back-link" href={areaUrl(resource.data.sourceArea)}>← {resource.data.sourceArea}</a>
+      <h1>{resource.data.title}</h1>
+      <div class="article-meta">
+        <span>{resource.data.format === 'presentation' ? 'Presentation notes' : 'Article'}</span>
+        <span aria-hidden="true">·</span>
+        <a href={areaUrl(resource.data.sourceArea)}>{resource.data.sourceArea}</a>
+      </div>
+    </div>
+    {resource.data.format === 'presentation' && <p class="source-note">These notes were converted from presentation slides. Text found in slide images may need comparison with the original presentation.</p>}
+    {(resource.data.youtubeVideoUrl || resource.data.youtubePlaylistUrl) && (
+      <div class="paired-media">
+        <h2>Watch the teaching</h2>
+        <a href={resource.data.youtubeVideoUrl ?? resource.data.youtubePlaylistUrl} target="_blank" rel="noopener noreferrer">Open the video on YouTube <span aria-hidden="true">↗</span></a>
+      </div>
+    )}
+    <div class="article-body"><Content /></div>
+    {resource.data.sourceDownload && <div class="download"><a href={resource.data.sourceDownload}>Download the source document <span aria-hidden="true">↓</span></a></div>}
+    <div class="article-end"><a href={areaUrl(resource.data.sourceArea)}>More in {resource.data.sourceArea} <span aria-hidden="true">↗</span></a></div>
+  </article>
+</SiteLayout>

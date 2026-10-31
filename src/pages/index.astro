@@ -1,0 +1,161 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import { areaUrl, getPublishedResources } from '../lib/resources';
+
+const resources = await getPublishedResources();
+const areaCounts = new Map<string, number>();
+for (const resource of resources) {
+  areaCounts.set(resource.data.sourceArea, (areaCounts.get(resource.data.sourceArea) ?? 0) + 1);
+}
+const areas = [...areaCounts.entries()].sort(([a], [b]) => a.localeCompare(b));
+---
+<SiteLayout title="Resources">
+  <section class="hero photo-hero">
+    <div class="shell hero-content">
+      <h1>Resources</h1>
+      <p>Find CLF Church teaching and study material in one place. Search for a subject, or browse the collections below.</p>
+      <form class="hero-search" action="/" method="get" role="search" id="home-search-form">
+        <label for="home-search">Search the library</label>
+        <div class="search-control">
+          <input id="home-search" name="q" type="search" placeholder="Search a title or subject" autocomplete="off" />
+          <button type="submit">Search <span aria-hidden="true">↗</span></button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="shell section browse-section" aria-labelledby="browse-heading" id="library-content">
+    <div class="section-heading">
+      <div>
+        <h2 id="browse-heading">Browse the library</h2>
+        <p id="browse-description">Choose a collection to see its articles and presentation notes.</p>
+      </div>
+      <span class="section-count" id="browse-count" role="status">{areas.length} collections</span>
+    </div>
+    <div class="area-grid" id="browse-areas">
+      {areas.map(([area, count]) => (
+        <a class="area-link" href={areaUrl(area)}>
+          <span class="area-title">{area}</span>
+          <span class="area-meta">{count} {count === 1 ? 'resource' : 'resources'} <span aria-hidden="true">↗</span></span>
+        </a>
+      ))}
+    </div>
+    <div class="resource-list" id="home-results" hidden></div>
+  </section>
+
+  <script>
+    type Entry = { title: string; slug: string; area: string; format: string; tags: string[]; searchText: string };
+    const form = document.querySelector<HTMLFormElement>('#home-search-form')!;
+    const query = document.querySelector<HTMLInputElement>('#home-search')!;
+    const section = document.querySelector<HTMLElement>('#library-content')!;
+    const heading = document.querySelector<HTMLElement>('#browse-heading')!;
+    const description = document.querySelector<HTMLElement>('#browse-description')!;
+    const count = document.querySelector<HTMLElement>('#browse-count')!;
+    const areas = document.querySelector<HTMLElement>('#browse-areas')!;
+    const results = document.querySelector<HTMLElement>('#home-results')!;
+    const browseDescription = description.textContent ?? '';
+    const browseCount = count.textContent ?? '';
+    let entriesPromise: Promise<Entry[]> | undefined;
+    let debounce: ReturnType<typeof setTimeout>;
+    let searchVersion = 0;
+
+    function loadEntries() {
+      entriesPromise ??= fetch('/search-index.json').then((response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json() as Promise<Entry[]>;
+      }).catch((error) => {
+        entriesPromise = undefined;
+        throw error;
+      });
+      return entriesPromise;
+    }
+
+    function updateUrl(value: string) {
+      const next = new URL(location.href);
+      if (value) next.searchParams.set('q', value);
+      else next.searchParams.delete('q');
+      history.replaceState(null, '', next);
+    }
+
+    function showCollections() {
+      heading.textContent = 'Browse the library';
+      description.textContent = browseDescription;
+      count.textContent = browseCount;
+      areas.hidden = false;
+      results.hidden = true;
+      results.replaceChildren();
+    }
+
+    function addResult(entry: Entry) {
+      const link = document.createElement('a');
+      link.className = 'resource-row';
+      link.href = `/${encodeURIComponent(entry.slug)}/`;
+      const title = document.createElement('span');
+      title.className = 'resource-row-title';
+      title.textContent = entry.title;
+      const meta = document.createElement('span');
+      meta.className = 'resource-row-meta';
+      meta.textContent = `${entry.area} · ${entry.format === 'presentation' ? 'Presentation notes' : 'Article'}`;
+      const arrow = document.createElement('span');
+      arrow.setAttribute('aria-hidden', 'true');
+      arrow.textContent = '↗';
+      meta.append(arrow);
+      link.append(title, meta);
+      results.append(link);
+    }
+
+    async function search() {
+      const value = query.value.trim();
+      const version = ++searchVersion;
+      updateUrl(value);
+      if (!value) {
+        showCollections();
+        return;
+      }
+
+      heading.textContent = 'Search results';
+      description.textContent = `Matching resources for “${value}”. Clear the search to browse collections again.`;
+      count.textContent = 'Searching…';
+      areas.hidden = true;
+      results.hidden = false;
+      results.replaceChildren();
+
+      try {
+        const entries = await loadEntries();
+        if (version !== searchVersion) return;
+        const terms = value.toLowerCase().split(/\s+/).filter(Boolean);
+        const filtered = entries.filter((entry) => {
+          const haystack = `${entry.title} ${entry.area} ${entry.tags.join(' ')} ${entry.searchText}`.toLowerCase();
+          return terms.every((term) => haystack.includes(term));
+        });
+        count.textContent = `${filtered.length} ${filtered.length === 1 ? 'resource' : 'resources'} found`;
+        if (!filtered.length) {
+          const empty = document.createElement('p');
+          empty.className = 'empty-state';
+          empty.textContent = 'No resources matched. Try another word or browse the collections.';
+          results.append(empty);
+          return;
+        }
+        filtered.forEach(addResult);
+      } catch {
+        if (version !== searchVersion) return;
+        count.textContent = 'Search is unavailable right now. Clear the search to browse collections.';
+      }
+    }
+
+    query.value = new URLSearchParams(location.search).get('q') ?? '';
+    if (query.value.trim()) search();
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      clearTimeout(debounce);
+      search();
+      if (query.value.trim()) section.scrollIntoView({ block: 'start' });
+    });
+    query.addEventListener('input', () => {
+      clearTimeout(debounce);
+      searchVersion++;
+      if (!query.value.trim()) search();
+      else debounce = setTimeout(search, 180);
+    });
+  </script>
+</SiteLayout>

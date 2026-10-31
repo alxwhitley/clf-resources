@@ -1,0 +1,105 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+---
+<SiteLayout title="Search resources">
+  <section class="shell page-intro search-intro">
+    <a class="back-link" href="/">← All resources</a>
+    <h1>Find a resource.</h1>
+    <p>Search titles and article text, or narrow the library by collection and format.</p>
+    <form class="hero-search" action="/search/" method="get" role="search" id="search-form">
+      <label for="search-query">Search the library</label>
+      <div class="search-control">
+        <input id="search-query" name="q" type="search" placeholder="Search a title or subject" autocomplete="off" />
+        <button type="submit">Search <span aria-hidden="true">↗</span></button>
+      </div>
+    </form>
+  </section>
+  <section class="shell results-section" aria-label="Search results">
+    <div class="filter-bar">
+      <label>Collection <select id="area-filter"><option value="">All collections</option></select></label>
+      <label>Format <select id="format-filter"><option value="">All formats</option><option value="article">Articles</option><option value="presentation">Presentation notes</option></select></label>
+    </div>
+    <p class="result-count" id="result-count" role="status">Loading resources…</p>
+    <div class="resource-list" id="search-results"></div>
+  </section>
+  <script>
+    type Entry = { title: string; slug: string; area: string; format: string; tags: string[]; searchText: string };
+    const query = document.querySelector<HTMLInputElement>('#search-query')!;
+    const form = document.querySelector<HTMLFormElement>('#search-form')!;
+    const areaFilter = document.querySelector<HTMLSelectElement>('#area-filter')!;
+    const formatFilter = document.querySelector<HTMLSelectElement>('#format-filter')!;
+    const count = document.querySelector<HTMLElement>('#result-count')!;
+    const results = document.querySelector<HTMLElement>('#search-results')!;
+    const params = new URLSearchParams(location.search);
+    query.value = params.get('q') ?? '';
+    let entries: Entry[] = [];
+    let debounce: ReturnType<typeof setTimeout>;
+
+    function matches(entry: Entry, terms: string[]) {
+      const haystack = `${entry.title} ${entry.area} ${entry.tags.join(' ')} ${entry.searchText}`.toLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    }
+
+    function draw() {
+      const terms = query.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const filtered = entries.filter((entry) =>
+        matches(entry, terms) &&
+        (!areaFilter.value || entry.area === areaFilter.value) &&
+        (!formatFilter.value || entry.format === formatFilter.value)
+      );
+      count.textContent = `${filtered.length} ${filtered.length === 1 ? 'resource' : 'resources'} found`;
+      results.replaceChildren();
+      if (!filtered.length) {
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'No resources matched. Try another word or choose a different collection.';
+        results.append(empty);
+        return;
+      }
+      for (const entry of filtered) {
+        const link = document.createElement('a');
+        link.className = 'resource-row';
+        link.href = `/${encodeURIComponent(entry.slug)}/`;
+        const title = document.createElement('span');
+        title.className = 'resource-row-title';
+        title.textContent = entry.title;
+        const meta = document.createElement('span');
+        meta.className = 'resource-row-meta';
+        meta.textContent = `${entry.area} · ${entry.format === 'presentation' ? 'Presentation notes' : 'Article'}`;
+        const arrow = document.createElement('span');
+        arrow.setAttribute('aria-hidden', 'true');
+        arrow.textContent = '↗';
+        meta.append(arrow);
+        link.append(title, meta);
+        results.append(link);
+      }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const next = new URL(location.href);
+      if (query.value.trim()) next.searchParams.set('q', query.value.trim());
+      else next.searchParams.delete('q');
+      history.replaceState(null, '', next);
+      draw();
+    });
+    query.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(draw, 180); });
+    areaFilter.addEventListener('change', draw);
+    formatFilter.addEventListener('change', draw);
+
+    try {
+      const response = await fetch('/search-index.json');
+      if (!response.ok) throw new Error(String(response.status));
+      entries = await response.json();
+      for (const area of [...new Set(entries.map((entry) => entry.area))].sort((a, b) => a.localeCompare(b))) {
+        const option = document.createElement('option');
+        option.value = area;
+        option.textContent = area;
+        areaFilter.append(option);
+      }
+      draw();
+    } catch {
+      count.textContent = 'Search is unavailable right now. You can still browse the collections from the resources home.';
+    }
+  </script>
+</SiteLayout>

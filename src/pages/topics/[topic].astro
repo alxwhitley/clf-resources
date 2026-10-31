@@ -1,0 +1,30 @@
+---
+import SiteLayout from '../../layouts/SiteLayout.astro';
+import { areaSlug, getPublishedResources, resourceUrl } from '../../lib/resources';
+
+export async function getStaticPaths() {
+  const resources = await getPublishedResources();
+  const areas = [...new Set(resources.map((resource) => resource.data.sourceArea))];
+  return areas.map((area) => ({ params: { topic: areaSlug(area) }, props: { area } }));
+}
+
+const { area } = Astro.props;
+const resources = (await getPublishedResources()).filter((resource) => resource.data.sourceArea === area);
+---
+<SiteLayout title={area} description={`Browse ${area} resources from CLF Church.`}>
+  <section class="shell page-intro">
+    <a class="back-link" href="/">← All resources</a>
+    <h1>{area}</h1>
+    <p>{resources.length} {resources.length === 1 ? 'resource' : 'resources'} in this collection</p>
+  </section>
+  <section class="shell results-section" aria-label={`${area} resources`}>
+    <div class="resource-list">
+      {resources.map((resource) => (
+        <a class="resource-row" href={resourceUrl(resource.data.slug)}>
+          <span class="resource-row-title">{resource.data.title}</span>
+          <span class="resource-row-meta">{resource.data.format === 'presentation' ? 'Presentation notes' : 'Article'}<span aria-hidden="true">↗</span></span>
+        </a>
+      ))}
+    </div>
+  </section>
+</SiteLayout>
